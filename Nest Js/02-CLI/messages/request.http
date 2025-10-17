@@ -1,0 +1,13 @@
+### List messages
+GET http://localhost:3000/messages
+
+### Get message
+GET http://localhost:3000/messages/123
+
+### Create message
+POST http://localhost:3000/messages
+Content-Type: application/json
+
+{
+    "content": "Testing"
+}
