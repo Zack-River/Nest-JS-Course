@@ -1,4 +1,12 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
+import { ComputerService } from './computer.service';
 
 @Controller('computer')
-export class ComputerController {}
+export class ComputerController {
+    constructor(private computerService: ComputerService) {}
+
+    @Get('/')
+    runComputer(): string {
+        return this.computerService.run();
+    }
+}
