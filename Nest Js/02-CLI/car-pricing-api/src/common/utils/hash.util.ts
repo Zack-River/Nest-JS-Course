@@ -27,10 +27,6 @@ export async function verifyPassword(
   )) as Buffer;
   const storedBuffer = Buffer.from(storedHashedPassword, 'hex');
 
-  console.log('🧂 Salt:', salt);
-  console.log('💾 Stored Hash:', storedHashedPassword);
-  console.log('🔑 Supplied Hash:', suppliedHashedPassword.toString('hex'));
-
   if (storedBuffer.length !== suppliedHashedPassword.length) {
     console.error('❌ Length mismatch');
     return false;
