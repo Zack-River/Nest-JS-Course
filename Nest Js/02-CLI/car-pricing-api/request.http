@@ -1,18 +1,38 @@
+### Find User by email
+GET http://localhost:3000/users/?email=johndoeupdated@example.com
+Content-Type: application/json
+
+### Find User by id
+GET http://localhost:3000/users/1
+Content-Type: application/json
+
 ### REGISTER
-POST http://localhost:3000/auth/register
+POST http://localhost:3000/users/register
 Content-Type: application/json
 
 {
-  "name": "John Doe",
-  "email": "johndoe2@example.com",
+  "name": "Zack River",
+  "email": "zackriver@example.com",
   "password": "123456"
 }
 
 ### LOGIN
-POST http://localhost:3000/auth/login
+POST http://localhost:3000/users/login
 Content-Type: application/json
 
 {
-  "email": "johndoe@example.com",
+  "email": "zackriver@example.com",
   "password": "123456"
 }
+
+### UPDATE USER
+PATCH http://localhost:3000/users/1
+Content-Type: application/json
+
+{
+  "name": "John Doe Updated",
+  "email": "johndoeupdated@example.com"
+}
+
+### DELETE USER
+DELETE http://localhost:3000/auth/delete?id=1
