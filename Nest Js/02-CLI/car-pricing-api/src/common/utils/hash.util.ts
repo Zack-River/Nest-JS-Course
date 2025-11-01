@@ -12,11 +12,10 @@ export async function hashPassword(password: string): Promise<string> {
 export async function verifyPassword(
   storedPassword: string,
   suppliedPassword: string,
-): Promise<boolean> {
+) {
   const [salt, storedHashedPassword] = storedPassword.split('.');
 
   if (!salt || !storedHashedPassword) {
-    console.error('❌ Invalid stored password format:', storedPassword);
     return false;
   }
 
@@ -28,11 +27,9 @@ export async function verifyPassword(
   const storedBuffer = Buffer.from(storedHashedPassword, 'hex');
 
   if (storedBuffer.length !== suppliedHashedPassword.length) {
-    console.error('❌ Length mismatch');
     return false;
   }
 
   const isMatch = timingSafeEqual(storedBuffer, suppliedHashedPassword);
-  console.log('✅ Match:', isMatch);
   return isMatch;
 }

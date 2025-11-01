@@ -1,5 +1,4 @@
 import {
-  UseInterceptors,
   ExecutionContext,
   CallHandler,
   NestInterceptor,
