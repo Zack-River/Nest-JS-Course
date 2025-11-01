@@ -10,6 +10,7 @@ async function bootstrap() {
       name: 'session',
       keys: ['asdf1234543!@#asfdasf'],
       httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000,
     }),
   );
   app.useGlobalPipes(
