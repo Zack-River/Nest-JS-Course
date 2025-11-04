@@ -15,7 +15,7 @@ import { UserDto } from './dtos/user.dto';
 import { AuthService } from './auth.service';
 import { LoginUserDto } from './dtos/signin-user.dto';
 import { SessionDto } from './dtos/session.dto';
-import { CurrentUser } from 'src/common/decorators/current-user.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from './user.entity';
 import { AuthGuard } from '../../common/guards/auth.guard';
 @Controller('/users')
