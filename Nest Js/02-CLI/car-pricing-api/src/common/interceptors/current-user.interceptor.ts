@@ -5,7 +5,6 @@ import {
   ExecutionContext,
   CallHandler,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
 import { UsersService } from '../../modules/users/users.service';
 
 @Injectable()
