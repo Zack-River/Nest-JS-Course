@@ -6,6 +6,7 @@
 
 ## Table of Contents
 
+### Core Fundamentals (Sections 1-13)
 1. [Introduction to NestJS](#1-introduction-to-nestjs)
 2. [Project Setup](#2-project-setup)
 3. [Controllers](#3-controllers)
@@ -19,6 +20,15 @@
 11. [Guards](#11-guards)
 12. [Custom Decorators](#12-custom-decorators)
 13. [Testing](#13-testing)
+
+### Advanced Topics (Sections 14+)
+14. [TypeORM Relations](#14-typeorm-relations)
+15. [Query Builders & Advanced Queries](#15-query-builders--advanced-queries)
+16. [Database Migrations](#16-database-migrations)
+17. [Environment Configuration](#17-environment-configuration)
+18. [Middleware](#18-middleware)
+19. [End-to-End Testing](#19-end-to-end-testing)
+20. [Production Best Practices](#20-production-best-practices)
 
 ---
 
@@ -2031,18 +2041,1043 @@ Database → Service → Controller → Interceptors → Response
 
 ---
 
-## Next Steps
+## 14. TypeORM Relations
 
-After completing section 13, you'll move on to:
+### Understanding Relations
 
-- **Integration Testing**: Testing how modules work together
-- **E2E Testing**: Testing complete application flows
-- **Advanced TypeORM**: Relations, migrations, query builders
-- **Microservices**: Building distributed systems
-- **GraphQL**: Alternative to REST APIs
-- **WebSockets**: Real-time communication
-- **Caching**: Improving performance
-- **Deployment**: Deploying to production
+Relations define how entities are connected to each other in the database. TypeORM supports several types of relationships.
+
+### One-to-Many / Many-to-One
+
+**Scenario**: One user can create many reports, but each report belongs to one user.
+
+**User Entity:**
+
+```typescript
+import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
+import { Report } from '../reports/report.entity';
+
+@Entity()
+export class User {
+    @PrimaryGeneratedColumn()
+    id: number;
+
+    @Column()
+    name: string;
+
+    @Column({ unique: true })
+    email: string;
+
+    @Column()
+    password: string;
+
+    @Column({ default: true })
+    isAdmin: boolean;
+
+    @OneToMany(() => Report, (report) => report.user)
+    reports: Report[];
+}
+```
+
+**Report Entity:**
+
+```typescript
+import { Entity, Column, PrimaryGeneratedColumn, ManyToOne } from 'typeorm';
+import { User } from '../users/user.entity';
+
+@Entity()
+export class Report {
+    @PrimaryGeneratedColumn()
+    id: number;
+
+    @Column({ default: false })
+    approved: boolean;
+
+    @Column()
+    price: number;
+
+    @Column()
+    make: string;
+
+    @Column()
+    model: string;
+
+    @Column()
+    year: number;
+
+    @Column()
+    lng: number;
+
+    @Column()
+    lat: number;
+
+    @Column()
+    mileage: number;
+
+    @ManyToOne(() => User, (user) => user.reports)
+    user: User;
+}
+```
+
+### Creating Related Records
+
+```typescript
+@Injectable()
+export class ReportsService {
+    constructor(@InjectRepository(Report) private repo: Repository<Report>) {}
+    
+    async create(reportDto: CreateReportDto, user: User): Promise<Report> {
+        const report = this.repo.create(reportDto);
+        report.user = user; // Associate with user
+        return await this.repo.save(report);
+    }
+}
+```
+
+### Transforming Relations in DTOs
+
+Use `@Transform` to control how relations appear in responses:
+
+```typescript
+import { Expose, Transform } from 'class-transformer';
+
+export class ReportDto {
+    @Expose() 
+    id: number;
+    
+    @Expose() 
+    price: number;
+    
+    @Expose() 
+    make: string;
+
+    // Extract only the user ID from the relation
+    @Transform(({ obj }) => obj.user?.id ?? null)
+    @Expose()
+    userId: number;
+}
+```
+
+### Key Concepts
+
+- `@OneToMany()`: Defines the "one" side of the relationship
+- `@ManyToOne()`: Defines the "many" side of the relationship
+- The `@ManyToOne()` side actually stores the foreign key
+- Always specify both directions of the relationship for TypeORM to work properly
+
+---
+
+## 15. Query Builders & Advanced Queries
+
+### What are Query Builders?
+
+Query builders provide a powerful way to construct complex SQL queries programmatically.
+
+### Basic Query Builder
+
+```typescript
+const reports = await this.repo
+    .createQueryBuilder('report')
+    .select('*')
+    .where('report.approved = :approved', { approved: true })
+    .getMany();
+```
+
+### Advanced Query Example: Price Estimation
+
+This query calculates an average price based on similar vehicles:
+
+```typescript
+async createEstimate(query: GetEstimateDto) {
+    const { make, model, year, lng, lat, mileage } = query;
+
+    return this.repo
+        .createQueryBuilder('report')
+        .select('AVG(price)', 'price') // Calculate average price
+        .where('make = :make', { make })
+        .andWhere('model = :model', { model })
+        .andWhere('lng - :lng BETWEEN -5 AND 5', { lng }) // Within 5 degrees longitude
+        .andWhere('lat - :lat BETWEEN -5 AND 5', { lat }) // Within 5 degrees latitude
+        .andWhere('year - :year BETWEEN -3 AND 3', { year }) // Within 3 years
+        .andWhere('approved IS TRUE') // Only approved reports
+        .orderBy('mileage - :mileage', 'DESC') // Closest mileage first
+        .setParameters({ mileage })
+        .limit(3) // Top 3 matches
+        .getRawOne(); // Return single aggregated result
+}
+```
+
+### Query Builder Methods
+
+```typescript
+// Selecting
+.select('user.id', 'userId')
+.select('AVG(price)', 'avgPrice')
+
+// Filtering
+.where('user.name = :name', { name: 'John' })
+.andWhere('user.age > :age', { age: 18 })
+.orWhere('user.isAdmin = :admin', { admin: true })
+
+// Joining
+.leftJoin('user.reports', 'report')
+.innerJoin('user.profile', 'profile')
+
+// Ordering
+.orderBy('user.createdAt', 'DESC')
+.addOrderBy('user.name', 'ASC')
+
+// Limiting
+.limit(10)
+.offset(20)
+
+// Grouping
+.groupBy('user.role')
+.having('COUNT(user.id) > :count', { count: 5 })
+
+// Execution
+.getMany()    // Get array of entities
+.getOne()     // Get single entity
+.getRawOne()  // Get raw data object
+.getRawMany() // Get array of raw data
+```
+
+### DTO with Transform for Query Parameters
+
+When accepting query parameters, use `@Transform` to convert strings to proper types:
+
+```typescript
+import { Transform } from 'class-transformer';
+import { IsNumber, IsString, Min, Max } from 'class-validator';
+
+export class GetEstimateDto {
+    @Transform(({ value }) => value.trim())
+    @IsString()
+    make: string;
+
+    @Transform(({ value }) => value.trim())
+    @IsString()
+    model: string;
+
+    @Transform(({ value }) => parseInt(value))
+    @IsNumber()
+    @Min(1900)
+    @Max(new Date().getFullYear() + 1)
+    year: number;
+
+    @Transform(({ value }) => parseFloat(value))
+    @IsNumber()
+    @Min(-180)
+    @Max(180)
+    lng: number;
+
+    @Transform(({ value }) => parseFloat(value))
+    @IsNumber()
+    @Min(-90)
+    @Max(90)
+    lat: number;
+
+    @Transform(({ value }) => parseFloat(value))
+    @IsNumber()
+    @Min(0)
+    @Max(1000000)
+    mileage: number;
+}
+```
+
+**Why Transform?** Query parameters come as strings from the URL. `@Transform` converts them to the correct type before validation.
+
+---
+
+## 16. Database Migrations
+
+### Why Use Migrations?
+
+In production, you should **NEVER** use `synchronize: true`. Instead, use migrations to:
+
+- Track database schema changes over time
+- Apply changes in a controlled, versioned manner
+- Roll back changes if needed
+- Work safely in team environments
+
+### Setting Up Migrations
+
+**1. Create DataSource configuration:**
+
+**File: `data-source.ts`**
+
+```typescript
+import 'reflect-metadata';
+import { DataSource } from 'typeorm';
+import * as path from 'path';
+
+export const AppDataSource = new DataSource({
+    type: 'sqlite',
+    database: process.env.NODE_ENV === 'test' ? 'test.sqlite' : 'db.sqlite',
+    entities: [path.join(__dirname, '**/*.entity.{ts,js}')],
+    migrations: [path.join(__dirname, 'migrations/*.{ts,js}')],
+    synchronize: false, // ← ALWAYS false in production
+});
+```
+
+**2. Update app.module.ts:**
+
+```typescript
+import { AppDataSource } from '../data-source';
+
+@Module({
+    imports: [
+        TypeOrmModule.forRoot(AppDataSource.options),
+        // ... other modules
+    ],
+})
+export class AppModule {}
+```
+
+**3. Add migration scripts to package.json:**
+
+```json
+{
+    "scripts": {
+        "typeorm": "cross-env NODE_ENV=development node --require ts-node/register ./node_modules/typeorm/cli.js",
+        "migration:generate": "npm run typeorm migration:generate",
+        "migration:run": "npm run typeorm migration:run",
+        "migration:revert": "npm run typeorm migration:revert"
+    }
+}
+```
+
+### Creating Migrations
+
+```bash
+# Generate migration from entity changes
+npm run migration:generate -- -d data-source.ts src/migrations/initial-schema
+
+# Run pending migrations
+npm run migration:run -- -d data-source.ts
+
+# Revert last migration
+npm run migration:revert -- -d data-source.ts
+```
+
+### Example Migration File
+
+```typescript
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class InitialSchema1762448516932 implements MigrationInterface {
+    name = 'InitialSchema1762448516932'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        // Create tables and columns
+        await queryRunner.query(`CREATE TABLE "user" (
+            "id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, 
+            "name" varchar NOT NULL, 
+            "email" varchar NOT NULL, 
+            "password" varchar NOT NULL, 
+            "isAdmin" boolean NOT NULL DEFAULT (1),
+            CONSTRAINT "UQ_e12875dfb3b1d92d7d7c5377e22" UNIQUE ("email")
+        )`);
+        
+        await queryRunner.query(`CREATE TABLE "report" (
+            "id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+            "approved" boolean NOT NULL DEFAULT (0),
+            "price" integer NOT NULL,
+            "userId" integer,
+            CONSTRAINT "FK_e347c56b008c2057c9887e230aa" 
+            FOREIGN KEY ("userId") REFERENCES "user" ("id")
+        )`);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        // Reverse the changes
+        await queryRunner.query(`DROP TABLE "report"`);
+        await queryRunner.query(`DROP TABLE "user"`);
+    }
+}
+```
+
+### Migration Best Practices
+
+1. **Never edit existing migrations** - Create new ones for changes
+2. **Always test migrations** in development first
+3. **Backup production database** before running migrations
+4. **Keep migrations small** - One logical change per migration
+5. **Review generated SQL** before running
+
+---
+
+## 17. Environment Configuration
+
+### Using ConfigModule
+
+**1. Install dependencies:**
+
+```bash
+npm install @nestjs/config
+```
+
+**2. Create environment files:**
+
+```bash
+# .env.development
+NODE_ENV=development
+COOKIE_KEY=development-secret-key
+DATABASE_NAME=db.sqlite
+
+# .env.test
+NODE_ENV=test
+COOKIE_KEY=test-secret-key
+DATABASE_NAME=test.sqlite
+
+# .env.production
+NODE_ENV=production
+COOKIE_KEY=super-secure-production-key
+DATABASE_NAME=production.sqlite
+```
+
+**3. Configure in app.module.ts:**
+
+```typescript
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
+@Module({
+    imports: [
+        ConfigModule.forRoot({
+            isGlobal: true, // Make config available everywhere
+            envFilePath: `.env.${process.env.NODE_ENV}`, // Load correct env file
+        }),
+        // ... other imports
+    ],
+})
+export class AppModule {
+    constructor(private configService: ConfigService) {}
+    
+    configure(consumer: MiddlewareConsumer) {
+        consumer
+            .apply(
+                CookieSession({
+                    keys: [this.configService.get<string>('COOKIE_KEY')],
+                    httpOnly: true,
+                    maxAge: 24 * 60 * 60 * 1000,
+                }),
+            )
+            .forRoutes('*');
+    }
+}
+```
+
+**4. Update data-source.ts:**
+
+```typescript
+import { DataSource } from 'typeorm';
+
+export const AppDataSource = new DataSource({
+    type: 'sqlite',
+    database: process.env.NODE_ENV === 'test' ? 'test.sqlite' : 'db.sqlite',
+    entities: [path.join(__dirname, '**/*.entity.{ts,js}')],
+    migrations: [path.join(__dirname, 'migrations/*.{ts,js}')],
+    synchronize: false,
+});
+```
+
+**5. Update package.json scripts:**
+
+```json
+{
+    "scripts": {
+        "start": "cross-env NODE_ENV=development nest start",
+        "start:dev": "cross-env NODE_ENV=development nest start --watch",
+        "start:prod": "cross-env NODE_ENV=production node dist/main",
+        "test": "cross-env NODE_ENV=test jest",
+        "test:e2e": "cross-env NODE_ENV=test jest --config ./test/jest-e2e.json"
+    }
+}
+```
+
+### Using Config Service
+
+```typescript
+@Injectable()
+export class SomeService {
+    constructor(private configService: ConfigService) {}
+    
+    someMethod() {
+        const apiKey = this.configService.get<string>('API_KEY');
+        const port = this.configService.get<number>('PORT');
+        const isDev = this.configService.get('NODE_ENV') === 'development';
+    }
+}
+```
+
+### Environment-Specific Configuration
+
+```typescript
+// main.ts
+async function bootstrap() {
+    const app = await NestFactory.create(AppModule);
+    
+    const configService = app.get(ConfigService);
+    const port = configService.get('PORT') || 3000;
+    
+    // Development only
+    if (configService.get('NODE_ENV') === 'development') {
+        app.enableCors();
+    }
+    
+    // Production only
+    if (configService.get('NODE_ENV') === 'production') {
+        // Enable security features
+        app.enableCors({
+            origin: configService.get('ALLOWED_ORIGINS'),
+            credentials: true,
+        });
+    }
+    
+    await app.listen(port);
+}
+```
+
+---
+
+## 18. Middleware
+
+### What is Middleware?
+
+Middleware functions execute before route handlers and can:
+- Execute any code
+- Modify request/response objects
+- End the request-response cycle
+- Call the next middleware function
+
+### Creating Middleware
+
+**File: `common/middlewares/current-user.middleware.ts`**
+
+```typescript
+import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Request, Response, NextFunction } from 'express';
+import { UsersService } from '../../modules/users/users.service';
+import { User } from 'src/modules/users/user.entity';
+
+// Extend Express Request type
+declare global {
+    namespace Express {
+        interface Request {
+            currentUser?: User;
+        }
+    }
+}
+
+@Injectable()
+export class CurrentUserMiddleware implements NestMiddleware {
+    constructor(private usersService: UsersService) {}
+    
+    async use(req: Request, res: Response, next: NextFunction) {
+        const { userId } = req.session || {};
+        
+        if (userId) {
+            const user = await this.usersService.findOne(userId);
+            if (user) {
+                req.currentUser = user;
+            }
+        }
+        
+        next(); // Pass control to next middleware/handler
+    }
+}
+```
+
+### Applying Middleware
+
+**In Module:**
+
+```typescript
+import { Module, MiddlewareConsumer } from '@nestjs/common';
+import { CurrentUserMiddleware } from '../../common/middlewares/current-user.middleware';
+
+@Module({
+    imports: [TypeOrmModule.forFeature([User])],
+    controllers: [UsersController],
+    providers: [UsersService, AuthService],
+})
+export class UsersModule {
+    configure(consumer: MiddlewareConsumer) {
+        consumer
+            .apply(CurrentUserMiddleware)
+            .forRoutes('*'); // Apply to all routes
+            
+        // Or specific routes:
+        // .forRoutes({ path: 'users', method: RequestMethod.GET })
+    }
+}
+```
+
+### Middleware vs Interceptors
+
+**Use Middleware when:**
+- You need access to raw request/response objects
+- You want to modify request before it reaches NestJS pipeline
+- You need to work with sessions early in the request cycle
+
+**Use Interceptors when:**
+- You need access to the execution context
+- You want to transform the response
+- You need to bind extra logic to methods
+- You want to use NestJS dependency injection fully
+
+---
+
+## 19. End-to-End Testing
+
+### What is E2E Testing?
+
+E2E tests verify that the entire application works correctly from start to finish, testing the full request/response cycle.
+
+### Setting Up E2E Tests
+
+**File: `test/setup.ts`**
+
+```typescript
+import { rm } from 'fs/promises';
+import { join } from 'path';
+
+global.beforeEach(async () => {
+    try {
+        // Delete test database before each test
+        await rm(join(__dirname, '..', 'test.sqlite'));
+    } catch (error) {
+        // File might not exist, ignore error
+    }
+});
+```
+
+**File: `test/jest-e2e.json`**
+
+```json
+{
+    "moduleFileExtensions": ["js", "json", "ts"],
+    "rootDir": "../",
+    "testEnvironment": "node",
+    "testRegex": ".e2e-spec.ts$",
+    "transform": {
+        "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "setupFilesAfterEnv": ["<rootDir>/test/setup.ts"]
+}
+```
+
+### Writing E2E Tests
+
+**File: `test/auth.e2e-spec.ts`**
+
+```typescript
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import request from 'supertest';
+import { AppModule } from './../src/app.module';
+
+describe('Authentication System (e2e)', () => {
+    let app: INestApplication;
+
+    beforeEach(async () => {
+        const moduleFixture: TestingModule = await Test.createTestingModule({
+            imports: [AppModule],
+        }).compile();
+
+        app = moduleFixture.createNestApplication();
+        await app.init();
+    });
+
+    afterEach(async () => {
+        await app.close();
+    });
+
+    it('handles a signup request', () => {
+        const email = 'test@test.com';
+        
+        return request(app.getHttpServer())
+            .post('/users/register')
+            .send({
+                name: 'Test User',
+                email: email,
+                password: '123456',
+            })
+            .expect(201)
+            .then((res) => {
+                const { id, email: returnedEmail } = res.body.data;
+                expect(id).toBeDefined();
+                expect(returnedEmail).toEqual(email);
+            });
+    });
+
+    it('signup as a new user then get the currently logged in user', async () => {
+        const email = 'test@test.com';
+
+        // Signup
+        const signupResponse = await request(app.getHttpServer())
+            .post('/users/register')
+            .send({
+                name: 'Test User',
+                email: email,
+                password: '123456',
+            })
+            .expect(201);
+
+        // Get cookie from signup response
+        const cookie = signupResponse.get('Set-Cookie');
+
+        // Make authenticated request
+        const { body } = await request(app.getHttpServer())
+            .get('/users/whoami')
+            .set('Cookie', cookie ?? [])
+            .expect(200);
+
+        expect(body.data.email).toEqual(email);
+    });
+});
+```
+
+### Testing with Sessions
+
+```typescript
+it('maintains session across requests', async () => {
+    // 1. Login
+    const loginRes = await request(app.getHttpServer())
+        .post('/users/login')
+        .send({ email: 'test@test.com', password: '123456' })
+        .expect(200);
+    
+    // 2. Extract cookie
+    const cookie = loginRes.get('Set-Cookie');
+    
+    // 3. Use cookie in subsequent requests
+    await request(app.getHttpServer())
+        .get('/users/whoami')
+        .set('Cookie', cookie)
+        .expect(200);
+});
+```
+
+### Running E2E Tests
+
+```bash
+# Run all e2e tests
+npm run test:e2e
+
+# Run with coverage
+npm run test:e2e -- --coverage
+
+# Run specific test file
+npm run test:e2e -- auth.e2e-spec.ts
+```
+
+### E2E Testing Best Practices
+
+1. **Isolate tests** - Each test should be independent
+2. **Clean database** - Start with fresh database for each test
+3. **Use real database** - Don't mock database in E2E tests
+4. **Test happy paths** - Focus on main user workflows
+5. **Test error cases** - Verify error handling works correctly
+
+---
+
+## 20. Production Best Practices
+
+### Security
+
+**1. Environment Variables**
+
+```typescript
+// ❌ Never hardcode secrets
+const cookieKey = 'my-secret-key';
+
+// ✅ Use environment variables
+const cookieKey = this.configService.get('COOKIE_KEY');
+```
+
+**2. Disable synchronize in production**
+
+```typescript
+TypeOrmModule.forRoot({
+    type: 'sqlite',
+    database: 'db.sqlite',
+    entities: [User, Report],
+    synchronize: process.env.NODE_ENV !== 'production', // ← Only in dev
+});
+```
+
+**3. Use secure cookies**
+
+```typescript
+CookieSession({
+    keys: [process.env.COOKIE_KEY],
+    httpOnly: true, // Prevent JavaScript access
+    secure: process.env.NODE_ENV === 'production', // HTTPS only in prod
+    maxAge: 24 * 60 * 60 * 1000,
+});
+```
+
+### Error Handling
+
+**Global Exception Filter:**
+
+```typescript
+import { ExceptionFilter, Catch, ArgumentsHost, HttpException } from '@nestjs/common';
+
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+    catch(exception: unknown, host: ArgumentsHost) {
+        const ctx = host.switchToHttp();
+        const response = ctx.getResponse();
+        const request = ctx.getRequest();
+
+        const status = exception instanceof HttpException
+            ? exception.getStatus()
+            : 500;
+
+        const message = exception instanceof HttpException
+            ? exception.getResponse()
+            : 'Internal server error';
+
+        // Log error in production
+        if (process.env.NODE_ENV === 'production') {
+            console.error('Error:', exception);
+        }
+
+        response.status(status).json({
+            statusCode: status,
+            timestamp: new Date().toISOString(),
+            path: request.url,
+            message: process.env.NODE_ENV === 'production' 
+                ? 'An error occurred' 
+                : message,
+        });
+    }
+}
+```
+
+### Performance
+
+**1. Database Indexing**
+
+```typescript
+@Entity()
+export class User {
+    @Column({ unique: true })
+    @Index() // ← Add index for faster lookups
+    email: string;
+}
+```
+
+**2. Pagination**
+
+```typescript
+async findAll(page: number = 1, limit: number = 10) {
+    return await this.repo.find({
+        skip: (page - 1) * limit,
+        take: limit,
+    });
+}
+```
+
+**3. Select Only Needed Fields**
+
+```typescript
+const users = await this.repo
+    .createQueryBuilder('user')
+    .select(['user.id', 'user.name', 'user.email']) // Don't fetch password
+    .getMany();
+```
+
+### Logging
+
+```typescript
+import { Logger } from '@nestjs/common';
+
+@Injectable()
+export class UsersService {
+    private readonly logger = new Logger(UsersService.name);
+
+    async create(userData: CreateUserDto) {
+        this.logger.log(`Creating user with email: ${userData.email}`);
+        
+        try {
+            const user = await this.repo.save(userData);
+            this.logger.log(`User created successfully: ${user.id}`);
+            return user;
+        } catch (error) {
+            this.logger.error(`Failed to create user: ${error.message}`, error.stack);
+            throw error;
+        }
+    }
+}
+```
+
+### Deployment Checklist
+
+- [ ] Set `NODE_ENV=production`
+- [ ] Use environment variables for all secrets
+- [ ] Disable `synchronize` in TypeORM
+- [ ] Run database migrations
+- [ ] Enable HTTPS
+- [ ] Set secure cookie options
+- [ ] Add rate limiting
+- [ ] Configure CORS properly
+- [ ] Set up logging
+- [ ] Add health check endpoint
+- [ ] Configure error tracking (e.g., Sentry)
+- [ ] Optimize database queries
+- [ ] Add database indexes
+- [ ] Test in production-like environment
+- [ ] Set up monitoring
+
+### Health Check Endpoint
+
+```typescript
+@Controller('health')
+export class HealthController {
+    constructor(private configService: ConfigService) {}
+
+    @Get()
+    check() {
+        return {
+            status: 'ok',
+            environment: this.configService.get('NODE_ENV'),
+            timestamp: new Date().toISOString(),
+        };
+    }
+}
+```
+
+---
+
+## Advanced Patterns
+
+### Custom Response DTO Class
+
+Create reusable response structure:
+
+```typescript
+// common/dtos/api-response.dto.ts
+export class ApiResponse<T = unknown> {
+    action: string;
+    success: boolean;
+    message: string;
+    meta: MetaDto;
+    data: T;
+
+    static success<T>(
+        action: string,
+        message: string,
+        data: T,
+        meta: Partial<MetaDto> = {},
+    ): ApiResponse<T> {
+        return new ApiResponse(
+            action,
+            true,
+            message,
+            {
+                affectedRows: meta.affectedRows ?? 0,
+                session: meta.session ?? { userId: 0 },
+                timestamp: meta.timestamp ?? new Date(),
+            },
+            data,
+        );
+    }
+
+    static error<T = null>(
+        action: string,
+        message: string,
+        meta: Partial<MetaDto> = {},
+    ): ApiResponse<T> {
+        return new ApiResponse(
+            action,
+            false,
+            message,
+            {
+                affectedRows: 0,
+                session: meta.session ?? { userId: 0 },
+                timestamp: new Date(),
+            },
+            null as T,
+        );
+    }
+}
+```
+
+**Usage:**
+
+```typescript
+@Post()
+async createReport(@Body() body: CreateReportDto, @CurrentUser() user: User) {
+    const report = await this.reportsService.create(body, user);
+    
+    return ApiResponse.success(
+        'createReport',
+        'Report created successfully',
+        report,
+        { affectedRows: 1, session: { userId: user.id } }
+    );
+}
+```
+
+### Admin Guard
+
+```typescript
+// common/guards/admin.guard.ts
+@Injectable()
+export class AdminGuard implements CanActivate {
+    canActivate(context: ExecutionContext): boolean {
+        const request = context.switchToHttp().getRequest();
+        const user = request.currentUser;
+        
+        if (!user) {
+            throw new ForbiddenException('You must be logged in');
+        }
+        
+        if (!user.isAdmin) {
+            throw new ForbiddenException('Only admins can access this resource');
+        }
+        
+        return true;
+    }
+}
+```
+
+**Usage:**
+
+```typescript
+@Patch('/:id')
+@UseGuards(AdminGuard)
+async approveReport(@Param('id') id: number, @Body() body: ApproveReportDto) {
+    // Only admins can reach this endpoint
+    return await this.reportsService.changeApproval(id, body.approved);
+}
+```
+
+### Combining Multiple Decorators
+
+```typescript
+// Create composite decorator
+export function Auth() {
+    return applyDecorators(
+        UseGuards(AuthGuard),
+        Serialize(UserDto),
+    );
+}
+
+// Usage
+@Controller('users')
+export class UsersController {
+    @Get('/profile')
+    @Auth() // ← Applies both guard and serialization
+    getProfile(@CurrentUser() user: User) {
+        return user;
+    }
+}
+```
 
 ---
 
@@ -2099,7 +3134,560 @@ app.use(CookieSession({
 
 ---
 
+## Course Complete! 🎉
+
+### What You've Learned
+
+You've completed a comprehensive journey through NestJS, covering:
+
+**Fundamentals:**
+- ✅ Project setup and architecture
+- ✅ Controllers, services, and modules
+- ✅ Dependency injection system
+- ✅ DTOs and validation
+- ✅ TypeORM database integration
+
+**Authentication & Security:**
+- ✅ User authentication with sessions
+- ✅ Password hashing and verification
+- ✅ Guards for route protection
+- ✅ Custom decorators
+- ✅ Role-based authorization
+
+**Advanced Database:**
+- ✅ Entity relations (One-to-Many, Many-to-One)
+- ✅ Query builders and complex queries
+- ✅ Database migrations
+- ✅ Production-safe database management
+
+**Testing & Quality:**
+- ✅ Unit testing with Jest
+- ✅ Mocking dependencies
+- ✅ E2E testing strategies
+- ✅ Test isolation and database cleanup
+
+**Production Readiness:**
+- ✅ Environment configuration
+- ✅ Middleware implementation
+- ✅ Error handling patterns
+- ✅ Security best practices
+- ✅ Performance optimization
+
+### Your Projects
+
+**1. Messages App** (`02-CLI/messages/`)
+- Basic CRUD operations
+- File-based storage
+- Repository pattern
+
+**2. Computer System** (`02-CLI/computer/`)
+- Module communication
+- Shared services
+- Dependency injection
+
+**3. Car Pricing API** (`02-CLI/car-pricing-api/`)
+- Full authentication system
+- User and report management
+- Advanced query builders
+- Database migrations
+- E2E tests
+- Production configuration
+
+### Key Architectural Patterns You've Mastered
+
+```typescript
+// 1. Dependency Injection
+@Injectable()
+export class MyService {
+    constructor(private repo: Repository<Entity>) {}
+}
+
+// 2. Decorator-Based Design
+@Controller('users')
+@UseGuards(AuthGuard)
+@Serialize(UserDto)
+export class UsersController {}
+
+// 3. Repository Pattern
+Service → Repository → Database
+
+// 4. Middleware Pipeline
+Request → Middleware → Guard → Interceptor → Handler → Interceptor → Response
+
+// 5. Testing Strategies
+Unit Tests + Integration Tests + E2E Tests = Confidence
+```
+
+### Real-World Skills Gained
+
+1. **API Design**: RESTful endpoints with proper HTTP methods
+2. **Database Management**: Relations, queries, migrations
+3. **Security**: Authentication, authorization, data protection
+4. **Testing**: Comprehensive test coverage strategies
+5. **Configuration**: Environment-based setup
+6. **Error Handling**: Graceful error management
+7. **Code Organization**: Modular, maintainable structure
+
+---
+
+## Next Steps & Further Learning
+
+### Immediate Practice
+
+1. **Build Your Own Project**: Apply everything you've learned
+   - E-commerce API
+   - Blog platform
+   - Task management system
+   - Social media backend
+
+2. **Enhance Car Pricing API**:
+   - Add user profiles
+   - Implement pagination
+   - Add search functionality
+   - Create admin dashboard
+   - Add email notifications
+
+### Advanced Topics to Explore
+
+**Microservices:**
+```typescript
+// Message-based communication between services
+@Module({
+    imports: [
+        ClientsModule.register([
+            {
+                name: 'MATH_SERVICE',
+                transport: Transport.TCP,
+            },
+        ]),
+    ],
+})
+```
+
+**GraphQL:**
+```typescript
+// Type-safe API queries
+@Resolver(() => User)
+export class UserResolver {
+    @Query(() => User)
+    async user(@Args('id') id: string) {
+        return this.userService.findOne(id);
+    }
+}
+```
+
+**WebSockets:**
+```typescript
+// Real-time communication
+@WebSocketGateway()
+export class EventsGateway {
+    @SubscribeMessage('message')
+    handleMessage(client: Socket, payload: any) {
+        this.server.emit('message', payload);
+    }
+}
+```
+
+**Caching:**
+```typescript
+// Performance optimization
+@Injectable()
+export class CacheService {
+    @Cacheable()
+    async getExpensiveData() {
+        // Results are cached
+    }
+}
+```
+
+**CQRS Pattern:**
+```typescript
+// Command Query Responsibility Segregation
+@Controller('users')
+export class UsersController {
+    @Post()
+    async create(@Body() dto: CreateUserDto) {
+        return this.commandBus.execute(new CreateUserCommand(dto));
+    }
+}
+```
+
+### Recommended Resources
+
+**Official Documentation:**
+- NestJS Docs: https://docs.nestjs.com
+- TypeORM Docs: https://typeorm.io
+- TypeScript Handbook: https://www.typescriptlang.org/docs/
+
+**Advanced Learning:**
+- NestJS GraphQL integration
+- Microservices architecture
+- Event-driven design
+- Docker containerization
+- Kubernetes deployment
+- CI/CD pipelines
+
+**Community:**
+- NestJS Discord: https://discord.gg/nestjs
+- Stack Overflow: [nestjs] tag
+- GitHub Issues: github.com/nestjs/nest
+
+---
+
+## Interview Prep: Key Concepts
+
+### Common NestJS Interview Questions
+
+**1. What is Dependency Injection and why is it important?**
+```typescript
+// DI allows NestJS to provide dependencies automatically
+constructor(private userService: UserService) {}
+// Benefits: Testability, maintainability, loose coupling
+```
+
+**2. Explain the request lifecycle in NestJS**
+```
+Middleware → Guard → Interceptor (before) → Pipe → 
+Handler → Interceptor (after) → Filter → Response
+```
+
+**3. What's the difference between @Injectable and @Controller?**
+- `@Injectable()`: Marks a class as a provider (can be injected)
+- `@Controller()`: Marks a class as a request handler (defines routes)
+
+**4. How do you handle authentication in NestJS?**
+```typescript
+// Combination of: Sessions + Guards + Decorators
+@UseGuards(AuthGuard)
+whoAmI(@CurrentUser() user: User) {}
+```
+
+**5. What are DTOs and why use them?**
+- Define data structure for requests/responses
+- Enable validation with class-validator
+- Provide type safety
+
+**6. Explain decorators you've used**
+```typescript
+@Controller()    // Define controller and routes
+@Injectable()    // Make class injectable
+@Get/@Post()     // HTTP methods
+@Body/@Param()   // Extract request data
+@UseGuards()     // Apply guards
+@Serialize()     // Custom decorator for response transformation
+```
+
+**7. How do you test NestJS applications?**
+- Unit tests: Test services in isolation with mocked dependencies
+- Integration tests: Test modules working together
+- E2E tests: Test full application flow
+
+**8. What's the difference between Interceptors and Middleware?**
+- Middleware: Executes before request reaches NestJS pipeline
+- Interceptors: Part of NestJS pipeline, access execution context
+
+---
+
+## Code Examples Cheat Sheet
+
+### Quick Reference
+
+**Creating a Complete Resource:**
+```bash
+# Generate everything at once
+nest g resource users
+
+# Or individually
+nest g module users
+nest g controller users
+nest g service users
+```
+
+**Basic CRUD Controller:**
+```typescript
+@Controller('items')
+export class ItemsController {
+    @Get()              // GET /items
+    findAll() {}
+    
+    @Get(':id')         // GET /items/:id
+    findOne(@Param('id') id: string) {}
+    
+    @Post()             // POST /items
+    create(@Body() dto: CreateItemDto) {}
+    
+    @Patch(':id')       // PATCH /items/:id
+    update(@Param('id') id: string, @Body() dto: UpdateItemDto) {}
+    
+    @Delete(':id')      // DELETE /items/:id
+    remove(@Param('id') id: string) {}
+}
+```
+
+**Service with Repository:**
+```typescript
+@Injectable()
+export class ItemsService {
+    constructor(
+        @InjectRepository(Item)
+        private repo: Repository<Item>,
+    ) {}
+    
+    async findAll() {
+        return await this.repo.find();
+    }
+    
+    async findOne(id: number) {
+        return await this.repo.findOne({ where: { id } });
+    }
+    
+    async create(dto: CreateItemDto) {
+        const item = this.repo.create(dto);
+        return await this.repo.save(item);
+    }
+    
+    async update(id: number, dto: UpdateItemDto) {
+        const item = await this.findOne(id);
+        Object.assign(item, dto);
+        return await this.repo.save(item);
+    }
+    
+    async remove(id: number) {
+        const item = await this.findOne(id);
+        return await this.repo.remove(item);
+    }
+}
+```
+
+**Entity with Relations:**
+```typescript
+@Entity()
+export class User {
+    @PrimaryGeneratedColumn()
+    id: number;
+    
+    @Column()
+    name: string;
+    
+    @OneToMany(() => Post, (post) => post.user)
+    posts: Post[];
+}
+
+@Entity()
+export class Post {
+    @PrimaryGeneratedColumn()
+    id: number;
+    
+    @Column()
+    title: string;
+    
+    @ManyToOne(() => User, (user) => user.posts)
+    user: User;
+}
+```
+
+**Authentication Flow:**
+```typescript
+// 1. Hash password
+const hashed = await hashPassword(password);
+
+// 2. Create user
+const user = await this.userService.create({ email, password: hashed });
+
+// 3. Store in session
+session.userId = user.id;
+
+// 4. Retrieve in middleware
+const user = await this.userService.findOne(session.userId);
+request.currentUser = user;
+
+// 5. Access via decorator
+@Get('/profile')
+@UseGuards(AuthGuard)
+getProfile(@CurrentUser() user: User) {
+    return user;
+}
+```
+
+---
+
+## Final Tips
+
+### Writing Clean NestJS Code
+
+**1. Keep Controllers Thin:**
+```typescript
+// ❌ Bad - Business logic in controller
+@Post()
+async create(@Body() dto: CreateUserDto) {
+    const hash = await bcrypt.hash(dto.password, 10);
+    const user = { ...dto, password: hash };
+    return await this.repo.save(user);
+}
+
+// ✅ Good - Delegate to service
+@Post()
+async create(@Body() dto: CreateUserDto) {
+    return await this.authService.signup(dto);
+}
+```
+
+**2. Use DTOs Everywhere:**
+```typescript
+// Request DTOs for validation
+export class CreateUserDto {
+    @IsEmail() email: string;
+    @MinLength(6) password: string;
+}
+
+// Response DTOs for serialization
+export class UserDto {
+    @Expose() id: number;
+    @Expose() email: string;
+    // password excluded
+}
+```
+
+**3. Handle Errors Properly:**
+```typescript
+async findOne(id: number) {
+    const user = await this.repo.findOne({ where: { id } });
+    
+    if (!user) {
+        throw new NotFoundException(`User with id ${id} not found`);
+    }
+    
+    return user;
+}
+```
+
+**4. Write Tests:**
+```typescript
+describe('AuthService', () => {
+    it('creates user with hashed password', async () => {
+        const user = await service.signup({ email, password });
+        expect(user.password).not.toEqual(password);
+    });
+});
+```
+
+**5. Use Environment Variables:**
+```typescript
+// ❌ Never hardcode
+const secret = 'my-secret-key';
+
+// ✅ Use config
+const secret = this.configService.get('SECRET_KEY');
+```
+
+---
+
+## Project Structure Reference
+
+```
+src/
+├── common/                      # Shared code
+│   ├── decorators/
+│   │   ├── current-user.decorator.ts
+│   │   └── serialize.decorator.ts
+│   ├── dtos/
+│   │   ├── api-response.dto.ts
+│   │   ├── meta.dto.ts
+│   │   └── session.dto.ts
+│   ├── guards/
+│   │   ├── auth.guard.ts
+│   │   └── admin.guard.ts
+│   ├── interceptors/
+│   │   ├── current-user.interceptor.ts
+│   │   └── serialize.interceptor.ts
+│   ├── middlewares/
+│   │   └── current-user.middleware.ts
+│   └── utils/
+│       └── hash.util.ts
+│
+├── modules/                     # Feature modules
+│   ├── users/
+│   │   ├── dtos/
+│   │   │   ├── create-user.dto.ts
+│   │   │   ├── update-user.dto.ts
+│   │   │   ├── user.dto.ts
+│   │   │   └── signin-user.dto.ts
+│   │   ├── user.entity.ts
+│   │   ├── users.controller.ts
+│   │   ├── users.controller.spec.ts
+│   │   ├── users.service.ts
+│   │   ├── users.service.spec.ts
+│   │   ├── auth.service.ts
+│   │   ├── auth.service.spec.ts
+│   │   └── users.module.ts
+│   │
+│   └── reports/
+│       ├── dto/
+│       │   ├── create-report.dto.ts
+│       │   ├── approve-report.dto.ts
+│       │   ├── get-estimate.dto.ts
+│       │   └── report.dto.ts
+│       ├── report.entity.ts
+│       ├── reports.controller.ts
+│       ├── reports.controller.spec.ts
+│       ├── reports.service.ts
+│       ├── reports.service.spec.ts
+│       └── reports.module.ts
+│
+├── migrations/                  # Database migrations
+│   └── 1762448516932-initial-schema.ts
+│
+├── app.controller.ts           # Root controller
+├── app.service.ts              # Root service
+├── app.module.ts               # Root module
+├── main.ts                     # Application entry point
+└── data-source.ts              # TypeORM configuration
+
+test/                           # E2E tests
+├── auth.e2e-spec.ts
+├── app.e2e-spec.ts
+├── jest-e2e.json
+└── setup.ts
+
+.env.development                # Development config
+.env.test                       # Test config
+.env.production                 # Production config
+```
+
+---
+
+## Congratulations! 🎊
+
+You've completed the NestJS Complete Developer's Guide and built production-ready applications!
+
+### You Can Now:
+✅ Build full-stack TypeScript applications  
+✅ Design scalable REST APIs  
+✅ Implement authentication and authorization  
+✅ Work with databases using TypeORM  
+✅ Write comprehensive tests  
+✅ Deploy production-ready applications  
+✅ Follow industry best practices  
+
+### Share Your Success:
+- Update your LinkedIn with "NestJS Developer"
+- Add projects to your GitHub portfolio
+- Build and deploy your own APIs
+- Contribute to open-source NestJS projects
+
+### Keep Learning:
+- Build more complex projects
+- Explore microservices architecture
+- Learn GraphQL with NestJS
+- Study system design patterns
+- Join the NestJS community
+
+**Happy Coding! 🚀**
+
+---
+
 **Created by**: Your Learning Journey  
 **Course**: NestJS: The Complete Developer's Guide (Udemy)  
-**Progress**: Sections 1-13 Complete  
-**Last Updated**: November 2025
+**Status**: ✅ COMPLETED  
+**Last Updated**: November 2025  
+**Your Achievement**: Full-Stack NestJS Developer 🏆
