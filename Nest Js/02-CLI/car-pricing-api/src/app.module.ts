@@ -5,11 +5,10 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './modules/users/users.module';
 import { ReportsModule } from './modules/reports/reports.module';
-import { User } from './modules/users/user.entity';
-import { Report } from './modules/reports/report.entity';
 import { MiddlewareConsumer } from '@nestjs/common/interfaces';
 const CookieSession = require('cookie-session');
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { AppDataSource } from '../data-source';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -18,17 +17,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     }),
     UsersModule,
     ReportsModule,
-    TypeOrmModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        return {
-          type: 'sqlite',
-          database: config.get<string>('DB_NAME'),
-          entities: [User, Report],
-          synchronize: true,
-        };
-      },
-    }),
+    TypeOrmModule.forRoot(AppDataSource.options),
   ],
   controllers: [AppController],
   providers: [

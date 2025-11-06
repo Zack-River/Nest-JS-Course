@@ -14,13 +14,13 @@ import { CreateReportDto } from './dto/request/create-report.dto';
 import { ReportsService } from './reports.service';
 import { ApiResponse } from '../../common/dtos';
 import { Report } from './report.entity';
-import { AuthGuard } from 'src/common/guards/auth.guard';
-import { CurrentUser } from 'src/common/decorators/current-user.decorator';
+import { AuthGuard } from '../../common/guards/auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/user.entity';
-import { Serialize } from 'src/common/decorators/serialize.decorator';
+import { Serialize } from '../../common/decorators/serialize.decorator';
 import { ReportDto } from './dto/report.dto';
 import { ApproveReportDto } from './dto/request/approve-report.dto';
-import { AdminGuard } from 'src/common/guards/admin.guard';
+import { AdminGuard } from '../../common/guards/admin.guard';
 import { GetEstimateDto } from './dto/request/get-estimate.dto';
 
 @Controller('/reports')
