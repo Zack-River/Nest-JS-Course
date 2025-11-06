@@ -11,3 +11,15 @@ Content-Type: application/json
   "lat": 37.7749,
   "mileage": 50000
 }
+
+### Approve Report
+Patch http://localhost:3000/reports/1
+Content-Type: application/json
+
+{
+  "approved": false
+}
+
+### Get Estimate
+GET http://localhost:3000/reports?make=Toyota&model=Corolla&year=2020&lng=-122.4194&lat=37.7749&mileage=50000
+

@@ -1,8 +1,8 @@
 import { Expose, Transform, Type } from 'class-transformer';
-import { UserDto } from '../../users/dtos/user.dto';
 
 export class ReportDto {
   @Expose() id: number;
+  @Expose() approved: boolean;
   @Expose() price: number;
   @Expose() make: string;
   @Expose() model: string;
@@ -11,7 +11,7 @@ export class ReportDto {
   @Expose() lat: number;
   @Expose() mileage: number;
 
-  @Transform(({ obj }) => obj.user.id)
+  @Transform(({ obj }) => obj.user?.id ?? null)
   @Expose()
   userId: number;
 }

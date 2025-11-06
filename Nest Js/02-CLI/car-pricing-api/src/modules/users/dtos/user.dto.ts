@@ -11,6 +11,9 @@ export class UserDto {
   email: string;
 
   @Expose()
+  isAdmin: boolean;
+
+  @Expose()
   createdAt: Date;
 
   @Expose()

@@ -24,6 +24,10 @@ export class User {
   @Column()
   password: string;
 
+  // remove before production
+  @Column({ default: true })
+  isAdmin: boolean;
+
   @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   createdAt: Date;
 

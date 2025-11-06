@@ -42,12 +42,13 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
   ],
 })
 export class AppModule {
+  constructor(private configService: ConfigService) {}
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(
         CookieSession({
           name: 'session',
-          keys: ['asdf1234543!@#asfdasf'],
+          keys: [this.configService.get<string>('COOKIE_KEY')],
           httpOnly: true,
           maxAge: 24 * 60 * 60 * 1000,
         }),
